@@ -1,0 +1,6 @@
+compute_environment: LOCAL_MACHINE
+distributed_type: NO
+use_cpu: false         # Должно быть false!
+num_processes: 1       # Для одного GPU
+machine_rank: 0
+num_machines: 1
