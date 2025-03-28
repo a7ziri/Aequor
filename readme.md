@@ -123,8 +123,13 @@ src/
 ## 📝 Документация
 TODO
 
-## Примеры 
-assskelad/smollm2-360M-sft_SmallThoughts - была  обучена  используя Aequor
+## 🎯 Примеры
+
+### Обученные модели
+[![Hugging Face](https://img.shields.io/badge/🤗%20Hugging%20Face-smollm2--360M-yellow)](https://huggingface.co/assskelad/smollm2-360M-sft_SmallThoughts)
+
+Модель [smollm2-360M-sft_SmallThoughts](https://huggingface.co/assskelad/smollm2-360M-sft_SmallThoughts) была успешно обучена с использованием Aequor. 
+
 
 ## 📄 Лицензия
 
