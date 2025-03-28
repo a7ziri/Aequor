@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="img_logo.png" alt="Aequor logo" width="250"/>
+  <img src="img_logo.jpg" alt="Aequor logo" width="250"/>
   <h1>🌟 Aequor</h1>
   <p>Простой и мощный инструмент для оубчения  LLM </p>
 
