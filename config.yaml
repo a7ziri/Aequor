@@ -1,0 +1,38 @@
+# Model arguments
+model_name_or_path: HuggingFaceTB/SmolLM2-360M
+use_unsloth: false
+
+
+# Data training arguments
+dataset_formats:
+  "SmallDoge/SmallThoughts": "chat_message"
+  # "openai/gsm8k": "qa"
+dataset_mixer:
+  "SmallDoge/SmallThoughts": 0.1
+  # "openai/gsm8k": 0.1
+dataset_splits:
+  - train
+  - test
+data_configs:
+    "SmallDoge/SmallThoughts": 'default'
+    # "openai/gsm8k": 'main'
+preprocessing_num_workers: 4
+tokenizer_max_seq_length: 512
+
+
+# SFT trainer config
+do_eval: true
+metric_for_best_model: "eval_loss"
+log_level: info
+logging_steps: 5
+logging_strategy: steps
+max_steps: 100
+weight_decay: 0.01
+num_train_epochs: 2
+evaluation_strategy: "steps"
+hub_model_id: "assskelad/SmolLM2-360M-newversion"
+eval_steps: 100
+output_dir: data/SmolLM2
+overwrite_output_dir: true
+push_to_hub: true
+seed: 42
