@@ -1,7 +1,7 @@
 <div align="center">
   <img src="img_logo.jpg" alt="Aequor logo" width="250"/>
   <h1>🌟 Aequor</h1>
-  <p>Простой и мощный инструмент для оубчения  LLM </p>
+  <p>Простой и мощный инструмент для обучения  LLM </p>
 
   [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
   [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
