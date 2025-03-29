@@ -149,12 +149,14 @@ def main():
                 use_gradient_checkpointing="unsloth",
                 load_in_4bit=model_args.load_in_4bit,
                 token=data_args.hf_token,
-                full_finetuning=True,
+                full_finetuning=model_args.full_finetuning,
                 **model_kwargs
             )
             model.train()
             if tokenizer.chat_template is None:
                 model, tokenizer = setup_chat_format(model, tokenizer)
+            if model_args.use_peft:
+                peft_config = get_peft_config(model_args)
         except ImportError:
             raise ImportError("Unsloth is not installed. Use pip install unsloth")
     else:
