@@ -50,6 +50,7 @@ def get_quantization_config(model_args: ModelArguments) -> Optional[BitsAndBytes
     return None
 
 
+
 def get_tokenizer(
     model_args: ModelArguments, 
     data_args: DataArguments, 
@@ -91,24 +92,25 @@ def get_tokenizer(
 def get_peft_config(model_args: ModelArguments) -> PeftConfig | None:
     if model_args.use_peft is False:
         return None
+    if model_args.peft_type.lower() == "lora":
+        return LoraConfig(
+            r=model_args.lora_r,                    
+            lora_alpha=model_args.lora_alpha,      
+            lora_dropout=model_args.lora_dropout,   
+            bias="none",                            
+            task_type="CAUSAL_LM",                
+            target_modules=model_args.target_modules,  
+            inference_mode=False,                  
+        )
+    # TODO: add other peft types
+    
 
-    peft_config = LoraConfig(
-        r=model_args.lora_r,
-        lora_alpha=model_args.lora_alpha,
-        lora_dropout=model_args.lora_dropout,
-        bias="none",
-        task_type="CAUSAL_LM",
-        target_modules=model_args.lora_target_modules,
-        modules_to_save=model_args.lora_modules_to_save,
-    )
-
-    return peft_config
 
 
-def is_adapter_model(model_name_or_path: str, revision: str = "main") -> bool:
+def is_adapter_model(model_name_or_path: str) -> bool:
     try:
         # Try first if model on a Hub repo
-        repo_files = list_repo_files(model_name_or_path, revision=revision)
+        repo_files = list_repo_files(model_name_or_path)
     except (HFValidationError, RepositoryNotFoundError):
         # If not, check local repo
         repo_files = os.listdir(model_name_or_path)
@@ -143,18 +145,3 @@ def auto_find_batch_size(
     approx_batch_size = int(total_mem * 0.8 / (model.num_parameters() / 1e9))
     return max(1, min(approx_batch_size, training_args.per_device_train_batch_size))
 
-
-def print_model_info(model: torch.nn.Module):
-    """Выводит подробную информацию о модели."""
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    
-    print(f"Архитектура модели: {model.__class__.__name__}")
-    print(f"Всего параметров: {total_params:,}")
-    print(f"Обучаемых параметров: {trainable_params:,}")
-    print(f"Процент обучаемых параметров: {100 * trainable_params / total_params:.2f}%")
-    
-    if hasattr(model, "hf_device_map"):
-        print("\nРаспределение по устройствам:")
-        for device, layers in model.hf_device_map.items():
-            print(f"{device}: {len(layers)} слоев")

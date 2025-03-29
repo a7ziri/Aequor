@@ -155,8 +155,6 @@ def main():
             model.train()
             if tokenizer.chat_template is None:
                 model, tokenizer = setup_chat_format(model, tokenizer)
-            if model_args.use_peft:
-                peft_config = get_peft_config(model_args)
         except ImportError:
             raise ImportError("Unsloth is not installed. Use pip install unsloth")
     else:
