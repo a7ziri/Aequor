@@ -27,6 +27,12 @@ class ModelArguments:
 
 
     )
+    full_finetuning: Optional[bool] = field(
+        default=True,
+        metadata={
+            "help": "Whether to use full finetuning or not"
+        },
+    )
     torch_dtype: Optional[str] = field(
         default=None,
         metadata={
@@ -94,15 +100,15 @@ class ModelArguments:
     # General quantization parameters
     quantization_method: Optional[str] = field(
         default="bnb",
-        metadata={"help": "The quantization method to use. Options: 'bnb', 'torch', 'onnx'."},
+        metadata={"help": "still not implemented"},
     )
     torch_quantization_scheme: Optional[str] = field(
         default="dynamic",
-        metadata={"help": "The quantization scheme for torch. Options: 'dynamic', 'static'."},
+        metadata={"help": "still not implemented"},
     )
     onnx_quantization_format: Optional[str] = field(
         default="qint8",
-        metadata={"help": "The quantization format for ONNX. Options: 'qint8', 'quint8'."},
+        metadata={"help": "still not implemented"},
     )
 
     def __post_init__(self):
@@ -114,12 +120,11 @@ class ModelArguments:
             raise ValueError("You can't use 8 bit and 4 bit precision at the same time")
         if (self.load_in_8bit or self.load_in_4bit) and self.quantization_method != "bnb":
             raise ValueError("load_in_8bit/4bit работает только с quantization_method='bnb'")
-        if self.quantization_method not in ["bnb", "torch", "onnx"]:
-            raise ValueError("Unsupported quantization method. Choose from 'bnb', 'torch', 'onnx'.")
-        if self.quantization_method == "torch" and self.torch_quantization_scheme not in ["dynamic", "static"]:
-            raise ValueError("Unsupported torch quantization scheme. Choose from 'dynamic', 'static'.")
-        if self.quantization_method == "onnx" and self.onnx_quantization_format not in ["qint8", "quint8"]:
-            raise ValueError("Unsupported ONNX quantization format. Choose from 'qint8', 'quint8'.")
+        if self.use_peft and self.full_finetuning:
+            raise ValueError("use_peft и full_finetuning не могут быть true одновременно")
+        if self.full_finetuning and not(self.use_unsloth):
+            raise ValueError("full_finetuning работает только с use_unsloth=True")
+        
         
 
 
@@ -314,13 +319,18 @@ class DPOConfig(trl.DPOConfig):
     Arguments related to the DPO training process itself. For all parameters, see: https://huggingface.co/docs/transformers/v4.39.3/en/main_classes/trainer#transformers.TrainingArguments
     """
 
-    hub_model_revision: Optional[str] = field(
-        default="main",
-        metadata={"help": ("The Hub model branch to push the model to.")},
+    auto_find_batch_size: bool = field(
+        default=False,
+        metadata={"help": "Автоматически определять оптимальный размер батча"}
     )
-    logging_first_step: bool = field(
-        default=True,
-        metadata={"help": ("Whether to log and evaluate the first global_step or not.")},
+    report_to: List[str] = field(default_factory=lambda: ["wandb"])
+
+    loss_type: Optional[str] = field(
+        default="sigmoid",
+        metadata={"help": "loss type for DPO"}
     )
-    optim: Optional[str] = field(default="rmsprop")
-    remove_unused_columns: bool = field(default=False)
+
+    beta: Optional[float] = field(
+        default=0.1,
+        metadata={"help": "beta for DPO"}
+    )
