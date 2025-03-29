@@ -99,8 +99,10 @@ class PreferredAnswerConverter(DataConverter):
             messages.append({"role": "user", "content": data["prompt"]})
         messages.append({"role": "assistant", "content": data["chosen"]})
         
+        # Добавляем rejected ответ, если это требуется
         if self.config.get("include_rejected", True):
             data["__rejected"] = data["rejected"]
+            messages.append({"role": "assistant", "content": data["rejected"], "rejected": True})
         
         return messages
 
