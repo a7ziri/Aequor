@@ -1,6 +1,6 @@
 # Model arguments
 model_name_or_path: HuggingFaceTB/SmolLM2-360M
-use_unsloth: false
+use_unsloth: true
 
 
 # Data training arguments
@@ -22,6 +22,7 @@ tokenizer_max_seq_length: 512
 
 # SFT trainer config
 do_eval: true
+full_finetuning: true
 metric_for_best_model: "eval_loss"
 log_level: info
 logging_steps: 5

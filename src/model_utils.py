@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional, Union, Dict
 
 import torch
-from transformers import AutoTokenizer, BitsAndBytesConfig, PreTrainedTokenizer
+from transformers import AutoTokenizer, BitsAndBytesConfig, PreTrainedTokenizer, PreTrainedModel
 from transformers.trainer_utils import get_last_checkpoint
 
 from accelerate import Accelerator
@@ -23,6 +23,30 @@ def get_current_device() -> torch.device:
         accelerator = Accelerator()
         return torch.device(f"cuda:{accelerator.local_process_index}")
     return torch.device("cpu")
+
+
+def estimate_memory_requirements(
+    model: PreTrainedModel,
+    batch_size: int,
+    sequence_length: int
+) -> Dict[str, float]:
+    """
+    Оценивает требования к памяти для обучения модели.
+    """
+    param_size = sum(p.numel() * p.element_size() for p in model.parameters()) / (1024**3)  # GB
+    
+    # Примерная оценка памяти для входных данных и градиентов
+    dtype_size = 4  # float32
+    if next(model.parameters()).dtype == torch.float16:
+        dtype_size = 2  # float16
+    
+    batch_size_memory = (batch_size * sequence_length * model.config.hidden_size * dtype_size) / (1024**3)  # GB
+    
+    return {
+        "model_size_gb": param_size,
+        "batch_memory_gb": batch_size_memory,
+        "estimated_total_gb": param_size + (batch_size_memory * 3)  # *3 для учета градиентов и оптимизатора
+    }
 
 
 

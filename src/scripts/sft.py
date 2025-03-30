@@ -27,7 +27,8 @@ from src.model_utils import (
     get_checkpoint,
     get_quantization_config,
     auto_find_batch_size,
-    get_kbit_device_map
+    get_kbit_device_map,
+    estimate_memory_requirements
 )
 
 from trl import SFTTrainer, setup_chat_format
@@ -170,6 +171,12 @@ def main():
             training_args.per_device_train_batch_size = auto_find_batch_size(training_args, model)
             training_args.per_device_eval_batch_size = training_args.per_device_train_batch_size
             logger.info(f"Automatically selected batch size: {training_args.per_device_train_batch_size}")
+    mem_req = estimate_memory_requirements(
+        model,
+        training_args.per_device_train_batch_size,
+        data_args.tokenizer_max_seq_length
+        )
+    logger.info(f"***Memory requirements: {mem_req}***")
 
     ########################
     # Initialize the Trainer
