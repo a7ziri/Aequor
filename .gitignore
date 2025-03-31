@@ -7,3 +7,4 @@ __pycache__
 unsloth_compiled_cache
 wandb
 .env
+/logs

@@ -16,7 +16,7 @@ class ModelArguments:
         default=None,
         metadata={"help": ("The base model checkpoint for weights initialization with PEFT adapters.")},
     )
-    model_name_or_path: str = field(default="mistralai/Mistral-7B-v0.1")
+    model_name_or_path: str = field(default="Qwen/Qwen2.5-Coder-32B-Instruct")
     use_unsloth:Optional[bool]= field(
         default= False,
         metadata={
@@ -24,9 +24,19 @@ class ModelArguments:
                 "Use  unsloth  for  training"
             )
         },
+    
 
 
     )
+
+
+    use_alignment_metrics: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Use alignment metrics for training"
+        },
+    )
+
     full_finetuning: Optional[bool] = field(
         default=True,
         metadata={

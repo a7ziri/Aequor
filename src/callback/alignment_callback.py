@@ -49,33 +49,71 @@ class AlignmentMetricsCallback(TrainerCallback):
             total_entropy = 0.0
             total_response_length = 0.0
             total_top_k_concentration = 0.0
-            num_samples = min(len(self.eval_dataset), 1500)  # Ограничиваем количество сэмплов для скорости
+            num_samples = min(len(self.eval_dataset), 500)  # Ограничиваем количество сэмплов для скорости
             
             with torch.no_grad():
-                for i in range(num_samples):
+                for i in range(min(num_samples, len(self.eval_dataset))):
                     # Получаем реальный пример из датасета
                     sample = self.eval_dataset[i]
-                    input_ids = torch.tensor(sample['input_ids']).unsqueeze(0).to(model.device)
                     
-                    # Получаем выход модели
-                    outputs = model(input_ids=input_ids)
-                    logits = outputs.logits
-                    
-                    # Берем логиты только для последнего токена
-                    last_token_logits = logits[:, -1, :]
-                    
-                    # Считаем вероятности
-                    probs = torch.softmax(last_token_logits, dim=-1)
-                    
-                    # KL-дивергенция
-                    uniform_probs = torch.ones_like(probs) / probs.size(-1)
-                    kl_div = torch.sum(probs * torch.log(probs / uniform_probs))
-                    
-                    # Энтропия
-                    entropy = -torch.sum(probs * torch.log(probs + 1e-10))
-                    
-                    # Длина ответа (разница между входом и выходом)
-                    response_length = len(sample['input_ids'])
+                    # Проверяем, какой тип данных у нас - DPO или обычный
+                    if 'prompt_input_ids' in sample:
+                        # Это DPO датасет, оцениваем оба ответа
+                        
+                        # Объединяем промпт и chosen ответ
+                        prompt_ids = torch.tensor(sample['prompt_input_ids']).to(model.device)
+                        chosen_ids = torch.tensor(sample['chosen_input_ids']).to(model.device)
+                        chosen_input_ids = torch.cat([prompt_ids, chosen_ids], dim=0).unsqueeze(0)
+                        
+                        # Объединяем промпт и rejected ответ
+                        rejected_ids = torch.tensor(sample['rejected_input_ids']).to(model.device)
+                        rejected_input_ids = torch.cat([prompt_ids, rejected_ids], dim=0).unsqueeze(0)
+                        
+                        # Оцениваем chosen ответ
+                        chosen_outputs = model(input_ids=chosen_input_ids)
+                        chosen_logits = chosen_outputs.logits[:, -1, :]
+                        chosen_probs = torch.softmax(chosen_logits, dim=-1)
+                        
+                        # Оцениваем rejected ответ
+                        rejected_outputs = model(input_ids=rejected_input_ids)
+                        rejected_logits = rejected_outputs.logits[:, -1, :]
+                        rejected_probs = torch.softmax(rejected_logits, dim=-1)
+                        
+                        # Вычисляем метрики для chosen
+                        chosen_uniform_probs = torch.ones_like(chosen_probs) / chosen_probs.size(-1)
+                        chosen_kl_div = torch.sum(chosen_probs * torch.log(chosen_probs / chosen_uniform_probs))
+                        chosen_entropy = -torch.sum(chosen_probs * torch.log(chosen_probs + 1e-10))
+                        
+                        # Вычисляем метрики для rejected
+                        rejected_uniform_probs = torch.ones_like(rejected_probs) / rejected_probs.size(-1)
+                        rejected_kl_div = torch.sum(rejected_probs * torch.log(rejected_probs / rejected_uniform_probs))
+                        rejected_entropy = -torch.sum(rejected_probs * torch.log(rejected_probs + 1e-10))
+                        
+                        # Сохраняем метрики
+                        kl_div = (chosen_kl_div + rejected_kl_div) / 2  # Среднее значение
+                        entropy = (chosen_entropy + rejected_entropy) / 2  # Среднее значение
+                        
+                        # Определяем, насколько модель предпочитает chosen над rejected
+                        # Это должно расти в процессе DPO обучения
+                        reward_gap = chosen_logits.mean() - rejected_logits.mean()
+                        metrics['dpo_reward_gap'] = reward_gap.item()
+                        
+                        # Длина ответов
+                        chosen_length = len(sample['chosen_input_ids'])
+                        rejected_length = len(sample['rejected_input_ids'])
+                        response_length = (chosen_length + rejected_length) / 2
+                    else:
+                        # Обычный датасет - код остается прежним
+                        input_ids = torch.tensor(sample['input_ids']).unsqueeze(0).to(model.device)
+                        outputs = model(input_ids=input_ids)
+                        logits = outputs.logits
+                        last_token_logits = logits[:, -1, :]
+                        probs = torch.softmax(last_token_logits, dim=-1)
+                        
+                        uniform_probs = torch.ones_like(probs) / probs.size(-1)
+                        kl_div = torch.sum(probs * torch.log(probs / uniform_probs))
+                        entropy = -torch.sum(probs * torch.log(probs + 1e-10))
+                        response_length = len(sample['input_ids'])
                     
                     # Концентрация на топ-K токенах
                     k = 10
