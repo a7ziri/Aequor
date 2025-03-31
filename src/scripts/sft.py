@@ -133,7 +133,7 @@ def main():
     model_kwargs = dict(
             trust_remote_code=model_args.trust_remote_code,
             attn_implementation=model_args.attn_implementation,
-            use_cache=False if training_args.gradient_checkpointing else True,
+            use_cache=False,
             device_map=get_kbit_device_map() if quantization_config is not None else None,
             quantization_config=quantization_config,
             max_length=data_args.tokenizer_max_seq_length,  
@@ -147,13 +147,13 @@ def main():
             model, _= FastLanguageModel.from_pretrained(
                 dtype=torch_dtype,
                 model_name=model_args.model_name_or_path,
-                use_gradient_checkpointing="unsloth",
+                use_gradient_checkpointing='unsloth',
                 load_in_4bit=model_args.load_in_4bit,
+                load_in_8bit=model_args.load_in_8bit,
                 token=data_args.hf_token,
                 full_finetuning=model_args.full_finetuning,
                 **model_kwargs
             )
-            model.train()
             if tokenizer.chat_template is None:
                 model, tokenizer = setup_chat_format(model, tokenizer)
         except ImportError:
@@ -179,15 +179,22 @@ def main():
     logger.info(f"***Memory requirements: {mem_req}***")
 
     ########################
-    # Initialize the Trainer
+    # Load callbacks 
     ########################
     
     # Создаем колбэк для метрик выравнивания
-    alignment_callback = AlignmentMetricsCallback(
-        tokenizer=tokenizer,
-        eval_dataset=eval_dataset
-    )
+    if model_args.use_alignment_metrics:
+        alignment_callback = AlignmentMetricsCallback(
+            tokenizer=tokenizer,
+            eval_dataset=eval_dataset
+        )
     logger.info(f"Callback created: {alignment_callback}")
+
+
+    ########################
+    # Initialize the Trainer
+    ########################
+    
 
     # Создаем тренер с колбэком
     trainer = SFTTrainer(
@@ -202,7 +209,7 @@ def main():
         compute_metrics=None,
         learning_rate=2e-5,
         peft_config=get_peft_config(model_args),
-        callbacks=[alignment_callback],
+        callbacks=[alignment_callback if model_args.use_alignment_metrics else None],
     )
     logger.info(f"Trainer callbacks: {trainer.callback_handler.callbacks}")
 

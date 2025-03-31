@@ -1,6 +1,7 @@
 from typing import Any , Dict
 import  logging
 from .base_dataset import BaseDataset
+from datasets import DatasetDict
 from src.config import DataArguments
 
 
@@ -10,6 +11,21 @@ class SFTDataset(BaseDataset):
 
     def __init__(self, data_args: DataArguments, tokenizer: Any):
         super().__init__(data_args=data_args, tokenizer=tokenizer)
+
+    def _load_and_preprocess_data(self) -> DatasetDict:
+        datasets = self._load_raw_datasets()
+        
+        
+        signature_columns = ["input_ids", "labels", "attention_mask"]
+        extra_columns = list(set(datasets['train'].column_names) - set(signature_columns))
+
+        # Apply chat template
+        datasets = datasets.map(
+            self._apply_chat_template,
+            fn_kwargs={"tokenizer": self.tokenizer},
+            remove_columns=extra_columns
+        )
+        return datasets
 
     def _apply_chat_template(self, example: Dict, **kwargs) -> Dict:
 

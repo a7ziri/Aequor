@@ -23,6 +23,9 @@ class BaseDataset(ABC):
     def _apply_chat_template(self, example: Dict, **kwargs) -> Dict:
         """Apply chat template to a single example"""
         raise NotImplementedError("Subclasses must implement this method")
+    
+
+    
 
 
     def _setup_tokenizer(self) -> str:
@@ -35,23 +38,9 @@ class BaseDataset(ABC):
         if dataset_path not in self.converters:
             self.converters[dataset_path] = self.data_args.create_converter_for_dataset(dataset_path)
         return self.converters[dataset_path]
-
+    @abstractmethod
     def _load_and_preprocess_data(self) -> DatasetDict:
-        datasets = self._load_raw_datasets()
-        
-        
-        signature_columns = ["input_ids", "labels", "attention_mask"]
-        extra_columns = list(set(datasets['train'].column_names) - set(signature_columns))
-
-        # Apply chat template
-        datasets = datasets.map(
-            self._apply_chat_template,
-            fn_kwargs={"tokenizer": self.tokenizer},
-            remove_columns=extra_columns
-        )
-        
-        # Dataset-specific post-processing
-        return datasets
+        raise NotImplementedError("Subclasses must implement this method")
 
 
 
