@@ -13,85 +13,85 @@ class DPODataset(BaseDataset):
     def __init__(self, data_args: DataArguments, tokenizer: Any):
         super().__init__(data_args=data_args, tokenizer=tokenizer)
 
-
-
+    def is_openai_format(self, messages):
+        """Проверяет, соответствует ли список сообщений формату OpenAI"""
+        if not isinstance(messages, list):
+            return False
+        if not messages:
+            return False
+        return all(isinstance(msg, dict) and 'role' in msg and 'content' in msg for msg in messages)
 
     def _load_and_preprocess_data(self) -> DatasetDict:
         datasets = self._load_raw_datasets()
         
-        # Обновленный список signature_columns с текстовыми полями
-
-        # Apply chat template
+        # Apply chat template and ensure we have the right columns for DPO
+        logger.info(f"Before processing, datasets have columns: {datasets['train'].column_names}")
+        
+        # Add the required columns for DPO training
         datasets = datasets.map(
             self._apply_chat_template,
-            fn_kwargs={"tokenizer": self.tokenizer},
+            fn_kwargs={"tokenizer": self.tokenizer},  # Remove original columns
         )
+        
+        logger.info(f"After processing, datasets have columns: {datasets['train'].column_names}")
+        
+        # Verify required columns exist
+        required_columns = ['prompt', 'chosen', 'rejected']
+        for split in datasets:
+            missing_cols = [col for col in required_columns if col not in datasets[split].column_names]
+            if missing_cols:
+                logger.error(f"Missing required columns in {split} dataset: {missing_cols}")
+                raise ValueError(f"Dataset is missing required columns: {missing_cols}")
+        
         return datasets
 
     def _apply_chat_template(self, example: Dict, **kwargs) -> Dict:
         """
         Применяет chat template для промпта, chosen и rejected ответов
         """
-        if not isinstance(example['messages'], list):
-            raise ValueError(f"Expected list of messages, got {type(example['messages'])}")
 
-        # Получаем промпт (все сообщения до chosen и rejected)
-        prompt_messages = example['messages'][:-2]
-        # Получаем chosen и rejected ответы отдельно
-        chosen_response = example['messages'][-2]
-        rejected_response = example['messages'][-1]
-        
-        # Применяем chat template для промпта
-        prompt_text = kwargs['tokenizer'].apply_chat_template(
-            prompt_messages,
-            tokenize=False,
-            add_generation_prompt=True
-        )
-        
-        # Удаляем bos_token если он есть
-        if kwargs['tokenizer'].bos_token is not None and prompt_text.startswith(kwargs['tokenizer'].bos_token):
-            prompt_text = prompt_text[len(kwargs['tokenizer'].bos_token):]
-        
-        # Токенизируем промпт + chosen и промпт + rejected вместе
-        chosen_full = prompt_text + chosen_response['content']
-        rejected_full = prompt_text + rejected_response['content']
-        
-        chosen_tokens = kwargs['tokenizer'](
-            chosen_full,
-            truncation=True,
-            padding=False,
-            max_length=self.data_args.tokenizer_max_seq_length
-        )
-        
-        rejected_tokens = kwargs['tokenizer'](
-            rejected_full,
-            truncation=True,
-            padding=False,
-            max_length=self.data_args.tokenizer_max_seq_length
-        )
-        
-        # Находим длину промпта в токенах для правильного разделения
-        prompt_tokens = kwargs['tokenizer'](
-            prompt_text,
-            truncation=True,
-            padding=False,
-            max_length=self.data_args.tokenizer_max_seq_length,
-            add_special_tokens=False  # Важно! Не добавляем специальные токены
-        )
-        prompt_length = len(prompt_tokens['input_ids'])
-        
-        return {
-            "prompt": prompt_text,  # Текстовый промпт (для отладки)
-            "chosen": chosen_response['content'],  # Текстовый chosen (для отладки)
-            "rejected": rejected_response['content'],  # Текстовый rejected (для отладки)
+        logger.debug(f"Example structure: {list(example.keys())}")
+
+        result = {}
+        # add format  if  chosen or rejected is not openai format
+        if all(key in example for key in ['prompt', 'chosen', 'rejected']):
+            prompt_input = example['prompt']
+            chosen_input = example['chosen'] 
+            rejected_input = example['rejected'] 
             
-            # Промпт отдельно (может потребоваться для некоторых реализаций)
-            "prompt_input_ids": chosen_tokens["input_ids"][:prompt_length],
-            "prompt_attention_mask": chosen_tokens["attention_mask"][:prompt_length],
+            # Применяем chat template в зависимости от формата
+            if prompt_input:
+                if self.is_openai_format(prompt_input):
+                    # Формат с диалогами OpenAI - применяем template ко всем сообщениям
+                    for field, input_data in [
+                        ('prompt', prompt_input),
+                        ('chosen', chosen_input),
+                        ('rejected', rejected_input)
+                    ]:
+                        result[field] = kwargs['tokenizer'].apply_chat_template(
+                            input_data,
+                            tokenize=False,
+                        )
+                else:
+                    # Формат с последним сообщением как ответом
+                    result['prompt'] = kwargs['tokenizer'].apply_chat_template(
+                        example["chosen"][:-1],
+                        tokenize=False,
+                    )
+                    # Now we extract the final turn to define chosen/rejected responses
+                    result['chosen'] = kwargs['tokenizer'].apply_chat_template(
+                        example["chosen"][-1:],
+                        tokenize=False,
+                    )
+                    result['rejected'] = kwargs['tokenizer'].apply_chat_template(
+                        example["rejected"][-1:],
+                        tokenize=False,
+                    )
+            else:
+                # Если prompt пустой, просто копируем исходные значения
+                return  ValueError("Prompt is empty")
+                
             
-            # Полные последовательности промпт + ответ
-            "chosen_input_ids": chosen_tokens["input_ids"],
-            "chosen_attention_mask": chosen_tokens["attention_mask"],
-            "rejected_input_ids": rejected_tokens["input_ids"],
-            "rejected_attention_mask": rejected_tokens["attention_mask"]
-        } 
+        return result
+
+   

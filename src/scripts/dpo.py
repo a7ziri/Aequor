@@ -1,6 +1,7 @@
 import logging
 import sys
 import os
+from accelerate import PartialState
 
 
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -8,9 +9,10 @@ sys.path.append(project_root)
 
 
 from unsloth import FastLanguageModel
-from accelerate import Accelerator
 import datasets
 import torch
+from unsloth import PatchDPOTrainer
+PatchDPOTrainer()
 import transformers
 from transformers import AutoModelForCausalLM, set_seed
 from src.data import DPODataset
@@ -45,28 +47,33 @@ def main():
     parser = H4ArgumentParser((ModelArguments, DataArguments, DPOConfig))
     model_args, data_args, training_args = parser.parse()
     
-    # Создаем акселератор
-    accelerator = Accelerator()
+
     
     # Настройка семени для воспроизводимости
     set_seed(training_args.seed)
     
     # Логируем информацию об акселераторе
-    logger.info(f"Accelerator configuration:")
-    logger.info(f"  Device: {accelerator.device}")
-    logger.info(f"  Mixed precision: {accelerator.mixed_precision}")
-    logger.info(f"  Distributed type: {accelerator.distributed_type}")
-    logger.info(f"  Num processes: {accelerator.num_processes}")
+
     
     # Настройка логирования
+    # Создаем директорию для логов, если она не существует
+    log_dir = os.path.join(training_args.output_dir, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, 'dpo_train.log')
+    
+    # Настройка логирования с выводом на экран и в файл
     logging.basicConfig(
+        level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(log_file, mode='w')
+        ],
     )
     
     # Устанавливаем уровень логирования
-    log_level = training_args.get_process_log_level()
+    log_level = logging.INFO
     logger.setLevel(log_level)
     datasets.utils.logging.set_verbosity(log_level)
     transformers.utils.logging.set_verbosity(log_level)
@@ -74,8 +81,7 @@ def main():
     transformers.utils.logging.enable_explicit_format()
     
     # Создаем директорию вывода (только в главном процессе)
-    if accelerator.is_main_process:
-        os.makedirs(training_args.output_dir, exist_ok=True)
+
     
     # Проверка доступности CUDA через PyTorch
     logger.info(f"PyTorch видит CUDA: {torch.cuda.is_available()}")
@@ -120,6 +126,9 @@ def main():
     )
     train_dataset = raw_datasets["train"]
     eval_dataset = raw_datasets["test"]
+
+    logger.info(f"Train dataset: {train_dataset[0]}")
+    logger.info(f"Eval dataset: {eval_dataset[0]}")
     
     #######################
     # Load pretrained model
@@ -132,7 +141,7 @@ def main():
     quantization_config = get_quantization_config(model_args)
     model_kwargs = dict(
             trust_remote_code=model_args.trust_remote_code,
-            attn_implementation=model_args.attn_implementation,
+            attn_implementation=None,
             use_cache=False,
             device_map=get_kbit_device_map() if quantization_config is not None else None,
             quantization_config=quantization_config,
@@ -143,7 +152,7 @@ def main():
         peft_config = PeftConfig.from_pretrained(model_args.model_name_or_path , **model_kwargs)
         model_kwargs = dict(
             trust_remote_code=model_args.trust_remote_code,
-            attn_implementation=model_args.attn_implementation,
+            attn_implementation=None,
             torch_dtype=torch_dtype,
             use_cache=False,
             device_map=get_kbit_device_map() if quantization_config is not None else None,
@@ -180,19 +189,37 @@ def main():
                 full_finetuning=model_args.full_finetuning,
                 **model_kwargs
             )
+            if model_args.use_peft:
+                    model = FastLanguageModel.get_peft_model(
+                        model, 
+                        r=model_args.lora_r,
+                        lora_alpha=model_args.lora_alpha,
+                        lora_dropout=model_args.lora_dropout,
+                        target_modules=model_args.lora_target_modules,
+                        use_gradient_checkpointing='unsloth'
+                    )
             if tokenizer.chat_template is None:
                 model, tokenizer = setup_chat_format(model, tokenizer)
         except ImportError:
             raise ImportError("Unsloth is not installed. Use pip install unsloth")
     else:
-        model = model_args.model_name_or_path
-        # For ChatML we need to add special tokens and resize the embedding layer
+        # Загружаем модель при помощи AutoModelForCausalLM вместо передачи строки
+        model = AutoModelForCausalLM.from_pretrained(
+            model_args.model_name_or_path,
+            torch_dtype=torch_dtype,
+            **model_kwargs
+        )
+        
+        # Если нужно применить PEFT
+        if model_args.use_peft:
+            from peft import get_peft_model
+            peft_config = get_peft_config(model_args)
+            model = get_peft_model(model, peft_config)
+            
+        # Применяем chat template если нужно
         if tokenizer.chat_template is None:
-            model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, torch_dtype=torch_dtype, **model_kwargs)
             model, tokenizer = setup_chat_format(model, tokenizer)
-            model_kwargs = None
-        else:
-            model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, torch_dtype=torch_dtype, **model_kwargs)
+        
         if training_args.auto_find_batch_size:
             training_args.per_device_train_batch_size = auto_find_batch_size(training_args, model)
             training_args.per_device_eval_batch_size = training_args.per_device_train_batch_size
@@ -210,20 +237,21 @@ def main():
     logger.info(f"Callback created: {alignment_callback}")
 
     # Создаем тренер с колбэком
+    state = PartialState()
     trainer = DPOTrainer(
         model=model,
-        ref_model=ref_model,
+        ref_model=None,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         tokenizer=tokenizer,
         dataset_num_proc=1,
-        compute_metrics=None,
-        learning_rate=5e-6,
-        peft_config=get_peft_config(model_args),
+        learning_rate=training_args.learning_rate,
+        peft_config=None if model_args.use_peft else get_peft_config(model_args),
         callbacks=[alignment_callback],
         loss_type=training_args.loss_type,
         beta=training_args.beta,
+        max_prompt_length=512
     )
     logger.info(f"Trainer callbacks: {trainer.callback_handler.callbacks}")
 
