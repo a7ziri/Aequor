@@ -86,9 +86,18 @@ class ModelArguments:
         default=0.05,
         metadata={"help": ("LoRA dropout.")},
     )
-    lora_target_modules: Optional[List[str]] = field(
-        default=None,
+
+    peft_type: Optional[str] = field(
+        default="lora",
+        metadata={"help": ("PEFT type.")},
+    )
+    lora_target_modules: List[str] = field(
+        default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         metadata={"help": ("LoRA target modules.")},
+    )
+    lora_task_type: Optional[str] = field(
+        default=None,
+        metadata={"help": ("LoRA task type.")},
     )
     lora_modules_to_save: Optional[List[str]] = field(
         default=None,
@@ -215,7 +224,7 @@ class DataArguments:
             "preferred_answer": {
                 "include_rejected": True,
                 "default_system_prompt": "You are a helpful assistant.",
-                "input_column": "chosen",
+                "input_columns": ["prompt", "chosen", "rejected"],
                 "format_columns": ["prompt", "chosen", "rejected"]
             },
             "qa": {
@@ -231,7 +240,7 @@ class DataArguments:
         default_factory=dict,
         metadata={
             "help": "Формат каждого датасета (dataset_path -> format_type) и дефолтный формат",
-            "choices": ["chat_message",  "preferred_answer"]
+            "choices": ["chat_message", "qa", "preferred_answer"]
         }
     )
 

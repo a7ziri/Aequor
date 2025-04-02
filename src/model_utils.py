@@ -6,7 +6,6 @@ import torch
 from transformers import AutoTokenizer, BitsAndBytesConfig, PreTrainedTokenizer, PreTrainedModel
 from transformers.trainer_utils import get_last_checkpoint
 
-from accelerate import Accelerator
 from huggingface_hub import list_repo_files
 from huggingface_hub.errors import RepositoryNotFoundError
 from huggingface_hub.utils._validators import HFValidationError
@@ -20,8 +19,7 @@ from src.data.base_dataset import DEFAULT_CHAT_TEMPLATE
 
 def get_current_device() -> torch.device:
     if torch.cuda.is_available():
-        accelerator = Accelerator()
-        return torch.device(f"cuda:{accelerator.local_process_index}")
+        return torch.device(f"cuda:{torch.cuda.current_device()}")
     return torch.device("cpu")
 
 
@@ -120,13 +118,15 @@ def get_peft_config(model_args: ModelArguments) -> PeftConfig | None:
         return LoraConfig(
             r=model_args.lora_r,                    
             lora_alpha=model_args.lora_alpha,      
-            lora_dropout=model_args.lora_dropout,   
-            bias="none",                            
-            task_type="CAUSAL_LM",                
-            target_modules=model_args.target_modules,  
+            lora_dropout=model_args.lora_dropout,                            
+            task_type=model_args.lora_task_type,                
+            target_modules=model_args.lora_target_modules,  
             inference_mode=False,                  
         )
+    
     # TODO: add other peft types
+    else:
+        raise NotImplementedError(f"PEFT type {model_args.peft_type} not implemented")
     
 
 
@@ -150,7 +150,7 @@ def get_checkpoint(training_args: SFTConfig | DPOConfig) -> Path | None:
 
 def get_current_device() -> int:
     """Get the current device. For GPU we return the local process index to enable multiple GPU training."""
-    return Accelerator().local_process_index if torch.cuda.is_available() else "cpu"
+    return torch.device(f"cuda:{torch.cuda.current_device()}") if torch.cuda.is_available() else "cpu"
 
 
 def get_kbit_device_map() -> Dict[str, int] | None:
@@ -162,8 +162,7 @@ def auto_find_batch_size(
     model: torch.nn.Module
 ) -> int:
     """Автоматически находит оптимальный размер батча на основе доступной памяти."""
-    accelerator = Accelerator()
-    total_mem = torch.cuda.get_device_properties(accelerator.device).total_memory / (1024**3)
+    total_mem = torch.cuda.get_device_properties(get_current_device()).total_memory / (1024**3)
     
     # Эмпирическая формула для расчета батча
     approx_batch_size = int(total_mem * 0.8 / (model.num_parameters() / 1e9))

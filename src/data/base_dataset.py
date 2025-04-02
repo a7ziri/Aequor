@@ -50,9 +50,12 @@ class BaseDataset(ABC):
         val_datasets = []
 
         for ds_name, frac in self.data_args.dataset_mixer.items():
+            logger.info(f"Processing dataset {ds_name} (fraction: {frac})")
             converter = self._get_converter(ds_name)
+            logger.info(f"Using converter: {converter.__class__.__name__}")
             
             for split in self.data_args.dataset_splits:
+                logger.info(f"Processing split: {split}")
                 try:
                     # Сначала пробуем загрузить локально
                     try:
@@ -84,16 +87,27 @@ class BaseDataset(ABC):
                             token=self.data_args.hf_token
                         )
                         logger.info(f"Successfully loaded dataset from Hugging Face Hub")
+
+                    # Выводим колонки датасета до преобразования
+                    logger.info(f"Dataset {ds_name} ({split}) columns before conversion: {dataset.column_names}")
+                    logger.info(f"First example: {dataset[0]}")
                     
-                    # Конвертируем данные
-                    dataset = dataset.map(
+                    if  converter.__class__.__name__ == "ChatMessageConverter" or converter.__class__.__name__ == "QAConverter":
+                        dataset = dataset.map(
                         lambda x: {"messages": converter.convert_to_chat_format(
                             x, 
                             auto_insert_empty_system_msg=self.data_args.auto_insert_empty_system_msg
                         )},
                         remove_columns=dataset.column_names
                     )
-                    
+                    elif converter.__class__.__name__ == "PreferredAnswerConverter":
+                        dataset = dataset.map(
+                            lambda x: converter.convert_to_chat_format(
+                                x, 
+                                auto_insert_empty_system_msg=self.data_args.auto_insert_empty_system_msg
+                            ),
+                            remove_columns=dataset.column_names
+                        )
                     logger.info(f"Successfully converted dataset {ds_name}")
                     
                     if "train" in split:
