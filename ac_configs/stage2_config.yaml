@@ -1,7 +1,7 @@
 compute_environment: LOCAL_MACHINE
 debug: false
 deepspeed_config:
-  deepspeed_config_file: deepspeed_configs/ds_config_stage_2.json
+  deepspeed_config_file: ds_configs/ds_config_stage_2.json
   zero3_init_flag: false
 downcast_bf16: 'no'
 enable_cpu_affinity: false

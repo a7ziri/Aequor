@@ -1,29 +1,47 @@
 # Model arguments
-model_name_or_path: HuggingFaceTB/SmolLM2-360M
+model_name_or_path:  unsloth/Llama-3.2-3B-Instruct-bnb-4bit
+torch_dtype: "bfloat16"
 use_unsloth: true
-
+use_alignment_metrics: true
+load_in_4bit: true
+peft_type: "lora"
+use_peft: true  
+lora_r: 16
+lora_alpha: 16  
+lora_dropout: 0
+lora_target_modules:  
+  - "q_proj"
+  - "k_proj"
+  - "v_proj"
+  - "o_proj"
+  - "gate_proj"
+  - "up_proj"
+  - "down_proj" 
+lora_task_type: "CAUSAL_LM"  
 
 # Data training arguments
 dataset_formats:
-  "SmallDoge/SmallThoughts": "chat_message"
+  "trl-internal-testing/hh-rlhf-helpful-base-trl-style": "preferred_answer"
   # "openai/gsm8k": "qa"
 dataset_mixer:
-  "SmallDoge/SmallThoughts": 0.1
+  "trl-internal-testing/hh-rlhf-helpful-base-trl-style": 0.1
   # "openai/gsm8k": 0.1
 dataset_splits:
   - train
   - test
 data_configs:
-    "SmallDoge/SmallThoughts": 'default'
+    "trl-internal-testing/hh-rlhf-helpful-base-trl-style": 'default'
     # "openai/gsm8k": 'main'
 preprocessing_num_workers: 4
 tokenizer_max_seq_length: 512
 
 
-# SFT trainer config
-do_eval: true
-full_finetuning: true
+# DPO trainer config
+do_eval: true             
+full_finetuning: false  
 metric_for_best_model: "eval_loss"
+beta: 0.1
+optim: "adamw_torch"
 log_level: info
 logging_steps: 5
 logging_strategy: steps
@@ -31,9 +49,13 @@ max_steps: 100
 weight_decay: 0.01
 num_train_epochs: 2
 evaluation_strategy: "steps"
-hub_model_id: "assskelad/SmolLM2-360M-newversion"
+hub_model_id: "assskelad/Llama-3.1-8B-dpo-bnb-4bit" 
 eval_steps: 100
-output_dir: data/SmolLM2
+output_dir: data/Llama-3.1-8B-dpo-bnb-4bit123
 overwrite_output_dir: true
-push_to_hub: true
+push_to_hub: false
 seed: 42
+learning_rate: 5.0e-6
+
+
+
