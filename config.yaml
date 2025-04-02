@@ -41,7 +41,6 @@ do_eval: true
 full_finetuning: false  
 metric_for_best_model: "eval_loss"
 beta: 0.1
-optim: "adamw_torch"
 log_level: info
 logging_steps: 5
 logging_strategy: steps
