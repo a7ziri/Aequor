@@ -1,5 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 class DataConverter(ABC):
     """Base class for converting between different data formats"""
@@ -84,27 +87,21 @@ class PreferredAnswerConverter(DataConverter):
     Пример: {"prompt": "Hello", "chosen": "Hi", "rejected": "Go away"}
     """
     
-    def convert_to_chat_format(self, data: Dict , auto_insert_empty_system_msg: bool = True) -> List[Dict[str, str]]:
-        messages = []
+    def convert_to_chat_format(self, data: Dict, auto_insert_empty_system_msg: bool = True) -> Dict:
+        """
+        Конвертирует данные в формат, подходящий для DPO обучения
+        """
         
-        if auto_insert_empty_system_msg:
-            self.add_system_message(messages, data.get("system"))
-        
-        required_fields = self.config["format_columns"]
+        required_fields = ["prompt", "chosen", "rejected"]
         missing_fields = [f for f in required_fields if f not in data]
         if missing_fields:
             raise ValueError(f"Missing required fields: {missing_fields}")
         
-        if data.get("prompt"):
-            messages.append({"role": "user", "content": data["prompt"]})
-        messages.append({"role": "assistant", "content": data["chosen"]})
-        
-        # Добавляем rejected ответ, если это требуется
-        if self.config.get("include_rejected", True):
-            data["__rejected"] = data["rejected"]
-            messages.append({"role": "assistant", "content": data["rejected"], "rejected": True})
-        
-        return messages
+        return {
+            "prompt": data["prompt"],
+            "chosen": data["chosen"],
+            "rejected": data["rejected"]
+        }
 
 class QAConverter(DataConverter):
     """Конвертер для формата вопрос-ответ (Q&A)
