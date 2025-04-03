@@ -24,16 +24,17 @@ class ModelArguments:
                 "Use  unsloth  for  training"
             )
         },
-    
-
-
     )
-
-
     use_alignment_metrics: Optional[bool] = field(
         default=False,
         metadata={
             "help": "Use alignment metrics for training"
+        },
+    )
+    use_profiler: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Use profiler for training"
         },
     )
 
@@ -251,6 +252,22 @@ class DataArguments:
         }
     )
 
+    auto_create_test_split: bool = field(
+        default=True,
+        metadata={"help": "Automatically create test split if missing"}
+    )
+    test_split_size: float = field(
+        default=0.1,
+        metadata={"help": "Size of test split when automatically creating one"}
+    )
+    test_split_seed: int = field(
+        default=42,
+        metadata={"help": "Random seed for creating test splits"}
+    )
+    minimum_test_size: int = field(
+        default=10,
+        metadata={"help": "Minimum size of test split"}
+    )
 
     def create_converter_for_dataset(self, dataset_path: str) -> Any:
         """

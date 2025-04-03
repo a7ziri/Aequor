@@ -2,7 +2,8 @@
 model_name_or_path:  unsloth/Llama-3.2-3B-Instruct-bnb-4bit
 torch_dtype: "bfloat16"
 use_unsloth: true
-use_alignment_metrics: true
+use_alignment_metrics: false
+use_profiler: true
 load_in_4bit: true
 peft_type: "lora"
 use_peft: true  
@@ -24,11 +25,10 @@ dataset_formats:
   "trl-internal-testing/hh-rlhf-helpful-base-trl-style": "preferred_answer"
   # "openai/gsm8k": "qa"
 dataset_mixer:
-  "trl-internal-testing/hh-rlhf-helpful-base-trl-style": 0.1
+  "trl-internal-testing/hh-rlhf-helpful-base-trl-style": 0.05
   # "openai/gsm8k": 0.1
 dataset_splits:
   - train
-  - test
 data_configs:
     "trl-internal-testing/hh-rlhf-helpful-base-trl-style": 'default'
     # "openai/gsm8k": 'main'
@@ -46,11 +46,10 @@ logging_steps: 5
 logging_strategy: steps
 max_steps: 100
 weight_decay: 0.01
-num_train_epochs: 2
 evaluation_strategy: "steps"
 hub_model_id: "assskelad/Llama-3.1-8B-dpo-bnb-4bit" 
-eval_steps: 100
-output_dir: data/Llama-3.1-8B-dpo-bnb-4bit123
+eval_steps: 10
+output_dir: data/Llama-3.1-8B-dpo-bnb-4bit123123
 overwrite_output_dir: true
 push_to_hub: false
 seed: 42

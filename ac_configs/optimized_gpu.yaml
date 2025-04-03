@@ -5,4 +5,4 @@ gpu_ids: all  # Использовать все доступные GPU
 num_processes: 1
 machine_rank: 0
 num_machines: 1
-bf16: true
+
