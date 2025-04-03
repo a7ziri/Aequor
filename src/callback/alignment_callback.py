@@ -1,10 +1,7 @@
 from transformers import TrainerCallback, TrainingArguments, TrainerState, TrainerControl
-from transformers.trainer_utils import EvalLoopOutput
-from typing import Dict, List, Any, Optional
+from typing import Dict
 import torch
-from torch.utils.data import DataLoader
 import torch.nn.functional as F
-from transformers import PreTrainedModel
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,7 +10,7 @@ class AlignmentMetricsCallback(TrainerCallback):
     def __init__(self, tokenizer, eval_dataset):
         super().__init__()
         self.tokenizer = tokenizer
-        self.eval_dataset = eval_dataset  # Сохраняем eval датасет
+        self.eval_dataset = eval_dataset  
         print("=== AlignmentMetricsCallback initialized ===")
         self.metrics_history = {
             "kl_divergence": [],
@@ -25,8 +22,7 @@ class AlignmentMetricsCallback(TrainerCallback):
 
     def setup(self, args, state, model, **kwargs):
         """Called when the training starts"""
-        print("=== AlignmentMetricsCallback setup called ===")
-        logger.info("Setup called")
+        logger.info("Setup called for AlignmentMetricsCallback")
         self.model = model
         
 
