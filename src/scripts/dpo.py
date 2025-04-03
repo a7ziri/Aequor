@@ -1,7 +1,6 @@
 import logging
 import sys
 import os
-from accelerate import PartialState
 
 
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,7 +32,8 @@ from src.model_utils import (
 )
 from peft import PeftConfig, PeftModel
 from trl import DPOTrainer, setup_chat_format
-from src.callback.alignment_callback import AlignmentMetricsCallback
+from src.callback.alignment_callback import AlignmentMetricsCallback 
+from src.callback.profiler_callback import TensorBoardProfilerCallback
 
 
 
@@ -228,16 +228,31 @@ def main():
     ########################
     # Initialize the Trainer
     ########################
-    
-    # Создаем колбэк для метрик выравнивания
-    alignment_callback = AlignmentMetricsCallback(
-        tokenizer=tokenizer,
-        eval_dataset=eval_dataset
-    )
-    logger.info(f"Callback created: {alignment_callback}")
+    callbacks = []
+    profiler_callback = TensorBoardProfilerCallback(
+            profile_steps=10,
+            profile_warmup=5
+        )
+    # if model_args.use_profiler:
+    #     profiler_callback = TensorBoardProfilerCallback(
+    #         profile_steps=10,
+    #         profile_warmup=5
+    #     )
+    #     logger.info(f"Callback created: {profiler_callback}")
+    #     callbacks.append(profiler_callback)
+    # else:
+    #     profiler_callback = None
+    if model_args.use_alignment_metrics:
+        alignment_callback = AlignmentMetricsCallback(
+            tokenizer=tokenizer,
+            eval_dataset=eval_dataset
+        )
+        logger.info(f"Callback created: {alignment_callback}")
+        callbacks.append(alignment_callback)
+    else:
+        alignment_callback = None
 
     # Создаем тренер с колбэком
-    state = PartialState()
     trainer = DPOTrainer(
         model=model,
         ref_model=None,
@@ -248,8 +263,10 @@ def main():
         dataset_num_proc=1,
         learning_rate=training_args.learning_rate,
         peft_config=None if model_args.use_peft else get_peft_config(model_args),
-        callbacks=[alignment_callback],
+        callbacks=[profiler_callback],
         loss_type=training_args.loss_type,
+        per_device_eval_batch_size=4,
+        per_device_train_batch_size=2,
         beta=training_args.beta,
         max_prompt_length=512
     )

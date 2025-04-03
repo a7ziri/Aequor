@@ -24,10 +24,10 @@ class BaseDataset(ABC):
         """Apply chat template to a single example"""
         raise NotImplementedError("Subclasses must implement this method")
     
-
+    @abstractmethod
+    def _load_and_preprocess_data(self) -> DatasetDict:
+        raise NotImplementedError("Subclasses must implement this method")
     
-
-
     def _setup_tokenizer(self) -> str:
         if not self.tokenizer.chat_template:
             self.tokenizer.chat_template = DEFAULT_CHAT_TEMPLATE
@@ -38,98 +38,78 @@ class BaseDataset(ABC):
         if dataset_path not in self.converters:
             self.converters[dataset_path] = self.data_args.create_converter_for_dataset(dataset_path)
         return self.converters[dataset_path]
-    @abstractmethod
-    def _load_and_preprocess_data(self) -> DatasetDict:
-        raise NotImplementedError("Subclasses must implement this method")
-
 
 
     def _load_raw_datasets(self) -> DatasetDict:
-        datasets = DatasetDict()
-        train_subsets = []
-        val_datasets = []
-
+        datasets_by_split = {"train": [], "test": []}
+        
         for ds_name, frac in self.data_args.dataset_mixer.items():
             logger.info(f"Processing dataset {ds_name} (fraction: {frac})")
             converter = self._get_converter(ds_name)
             logger.info(f"Using converter: {converter.__class__.__name__}")
             
-            for split in self.data_args.dataset_splits:
-                logger.info(f"Processing split: {split}")
+            try:
+                # Загрузка датасета
                 try:
-                    # Сначала пробуем загрузить локально
-                    try:
-                        logger.info(f"Attempting to load dataset from local path: {ds_name}")
-                        if os.path.isdir(ds_name):
-                            # Если указана директория
-                            dataset = load_from_disk(ds_name)
-                            if split in dataset:
-                                dataset = dataset[split]
-                            else:
-                                logger.warning(f"Split {split} not found in local dataset, skipping...")
-                                continue
-                        else:
-                            # Если указан путь к файлу
-                            dataset = load_dataset(
-                                'json' if ds_name.endswith('.json') else 'csv',
-                                data_files=ds_name,
-                                split=split
-                            )
-                        logger.info(f"Successfully loaded local dataset from {ds_name}")
-                    
-                    except (FileNotFoundError, ValueError) as e:
-                        # Если локально не нашли, пробуем загрузить из HF Hub
-                        logger.info(f"Local dataset not found, trying Hugging Face Hub: {ds_name}")
+                    if os.path.isdir(ds_name):
+                        dataset = load_from_disk(ds_name)
+                    else:
                         dataset = load_dataset(
-                            ds_name, 
-                            name=self.data_args.data_configs.get(ds_name), 
-                            split=split, 
-                            token=self.data_args.hf_token
+                            'json' if ds_name.endswith('.json') else 'csv',
+                            data_files=ds_name,
+                            split='train' # Сначала пробуем загрузить train split
                         )
-                        logger.info(f"Successfully loaded dataset from Hugging Face Hub")
-
-                    # Выводим колонки датасета до преобразования
-                    logger.info(f"Dataset {ds_name} ({split}) columns before conversion: {dataset.column_names}")
-                    logger.info(f"First example: {dataset[0]}")
-                    
-                    if  converter.__class__.__name__ == "ChatMessageConverter" or converter.__class__.__name__ == "QAConverter":
-                        dataset = dataset.map(
-                        lambda x: {"messages": converter.convert_to_chat_format(
-                            x, 
-                            auto_insert_empty_system_msg=self.data_args.auto_insert_empty_system_msg
-                        )},
-                        remove_columns=dataset.column_names
+                    logger.info(f"Successfully loaded local dataset from {ds_name}")
+                except (FileNotFoundError, ValueError):
+                    dataset = load_dataset(
+                        ds_name,
+                        name=self.data_args.data_configs.get(ds_name),
+                        token=self.data_args.hf_token
                     )
-                    elif converter.__class__.__name__ == "PreferredAnswerConverter":
-                        dataset = dataset.map(
-                            lambda x: converter.convert_to_chat_format(
-                                x, 
-                                auto_insert_empty_system_msg=self.data_args.auto_insert_empty_system_msg
-                            ),
-                            remove_columns=dataset.column_names
+                
+                # Обеспечиваем наличие обоих сплитов
+                dataset_splits = self._ensure_splits_exist(dataset, ds_name)
+                
+                # Конвертация данных
+                for split_name, split_dataset in dataset_splits.items():
+                    if converter.__class__.__name__ == "ChatMessageConverter" or converter.__class__.__name__ == "QAConverter":
+                        converted_dataset = split_dataset.map( 
+                            lambda x: { 'messages': converter.convert_to_chat_format(x)},
+                            remove_columns=split_dataset.column_names
                         )
-                    logger.info(f"Successfully converted dataset {ds_name}")
+                    else:
+                        converted_dataset = split_dataset.map( 
+                            lambda x: converter.convert_to_chat_format(x),
+                            remove_columns=split_dataset.column_names
+                        )
                     
-                    if "train" in split:
-                        subset = dataset.select(range(int(frac * len(dataset))))
-                        train_subsets.append(subset)
-                    elif "test" in split:
-                        val_datasets.append(dataset)
-                        
-                except Exception as e:
-                    logger.error(f"Failed to process dataset {ds_name}: {e}")
-                    raise
+                    # Применяем фракцию только к тренировочному сплиту
+                    if split_name == "train":
+                        subset_size = int(frac * len(converted_dataset))
+                        converted_dataset = converted_dataset.select(range(subset_size))
+                    if split_name == "test":
+                        subset_size = int(frac * len(converted_dataset))
+                        converted_dataset = converted_dataset.select(range(subset_size))
+                    
+                    datasets_by_split[split_name].append(converted_dataset)
+                    
+            except Exception as e:
+                logger.error(f"Failed to process dataset {ds_name}: {e}")
+                raise
 
-        # Объединяем датасеты
-        if train_subsets:
-            datasets["train"] = concatenate_datasets(train_subsets)
-        if val_datasets:
-            datasets["test"] = concatenate_datasets(val_datasets)
-        
+        # Объединяем все сплиты
+        final_datasets = DatasetDict({
+            split_name: concatenate_datasets(split_datasets) if split_datasets else None
+            for split_name, split_datasets in datasets_by_split.items()
+        })
+
+        # Перемешиваем данные если нужно
         if self.data_args.shuffle:
-            datasets = datasets.shuffle(seed=42)
-            
-        return datasets
+            for split_name in final_datasets:
+                if final_datasets[split_name] is not None:
+                    final_datasets[split_name] = final_datasets[split_name].shuffle(seed=42)
+        
+        return final_datasets
 
     def __len__(self):
         return len(self.datasets)
@@ -158,3 +138,38 @@ class BaseDataset(ABC):
         
         logger.info(f"Conversation data validated successfully with {len(sample)} messages")
         return True
+
+    def _create_train_test_split(self, dataset, test_size=0.1, seed=42):
+        """
+        Create train/test split if test split is missing
+        """
+        splits = dataset.train_test_split(test_size=test_size, seed=seed)
+        return {
+            "train": splits["train"],
+            "test": splits["test"]
+        }
+
+    def _ensure_splits_exist(self, dataset, dataset_name):
+        """
+        Ensure both train and test splits exist for the dataset
+        """
+        logger.info(f"Checking splits for dataset {dataset_name}")
+        
+        if isinstance(dataset, dict):
+            # Если датасет уже имеет структуру словаря сплитов
+            has_train = "train" in dataset
+            has_test = "test" in dataset
+            
+            if has_train and has_test:
+                logger.info(f"Dataset {dataset_name} already has both train and test splits")
+                return dataset
+            elif has_train and not has_test:
+                logger.info(f"Creating test split for dataset {dataset_name}")
+                splits = self._create_train_test_split(dataset["train"])
+                return splits
+            elif not has_train:
+                raise ValueError(f"Dataset {dataset_name} must have at least a train split")
+        else:
+            # Если датасет представлен как единый набор данных
+            logger.info(f"Creating train/test splits for dataset {dataset_name}")
+            return self._create_train_test_split(dataset)
