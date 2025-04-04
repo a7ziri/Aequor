@@ -33,6 +33,7 @@ from src.model_utils import (
 
 from trl import SFTTrainer, setup_chat_format
 from src.callback.alignment_callback import AlignmentMetricsCallback
+from src.callback.profiler_callback import TensorBoardProfilerCallback
 
 
 logger = logging.getLogger(__name__)
@@ -57,26 +58,36 @@ def main():
     logger.info(f"  Mixed precision: {accelerator.mixed_precision}")
     logger.info(f"  Distributed type: {accelerator.distributed_type}")
     logger.info(f"  Num processes: {accelerator.num_processes}")
-    
-    # Настройка логирования
+
+    # --- Start: Updated logging setup --- #
+
+
+ # Не пишем в файл на других процессах
+
+    # Настройка логирования с выводом на экран и в файл (если главный процесс)
+    log_dir = os.path.join(training_args.output_dir, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, 'dpo_train.log')
+
     logging.basicConfig(
+        level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(log_file, mode='w')
+        ],
     )
-    
-    # Устанавливаем уровень логирования
+
+    # Устанавливаем уровень логирования для текущего процесса
     log_level = training_args.get_process_log_level()
     logger.setLevel(log_level)
     datasets.utils.logging.set_verbosity(log_level)
     transformers.utils.logging.set_verbosity(log_level)
-    transformers.utils.logging.enable_default_handler()
+    transformers.utils.logging.enable_default_handler() # Перенаправляем стандартные логгеры
     transformers.utils.logging.enable_explicit_format()
-    
-    # Создаем директорию вывода (только в главном процессе)
-    if accelerator.is_main_process:
-        os.makedirs(training_args.output_dir, exist_ok=True)
-    
+    # --- End: Updated logging setup --- #
+
     # Проверка доступности CUDA через PyTorch
     logger.info(f"PyTorch видит CUDA: {torch.cuda.is_available()}")
     logger.info(f"Количество GPU: {torch.cuda.device_count()}")
@@ -154,19 +165,37 @@ def main():
                 full_finetuning=model_args.full_finetuning,
                 **model_kwargs
             )
+            if model_args.use_peft:
+                    model = FastLanguageModel.get_peft_model(
+                        model, 
+                        r=model_args.lora_r,
+                        lora_alpha=model_args.lora_alpha,
+                        lora_dropout=model_args.lora_dropout,
+                        target_modules=model_args.lora_target_modules,
+                        use_gradient_checkpointing='unsloth'
+                    )
             if tokenizer.chat_template is None:
                 model, tokenizer = setup_chat_format(model, tokenizer)
         except ImportError:
             raise ImportError("Unsloth is not installed. Use pip install unsloth")
     else:
-        model = model_args.model_name_or_path
-        # For ChatML we need to add special tokens and resize the embedding layer
+       # Загружаем модель при помощи AutoModelForCausalLM вместо передачи строки
+        model = AutoModelForCausalLM.from_pretrained(
+            model_args.model_name_or_path,
+            torch_dtype=torch_dtype,
+            **model_kwargs
+        )
+        
+        # Если нужно применить PEFT
+        if model_args.use_peft:
+            from peft import get_peft_model
+            peft_config = get_peft_config(model_args)
+            model = get_peft_model(model, peft_config)
+            
+        # Применяем chat template если нужно
         if tokenizer.chat_template is None:
-            model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, torch_dtype=torch_dtype, **model_kwargs)
             model, tokenizer = setup_chat_format(model, tokenizer)
-            model_kwargs = None
-        else:
-            model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, torch_dtype=torch_dtype, **model_kwargs)
+        
         if training_args.auto_find_batch_size:
             training_args.per_device_train_batch_size = auto_find_batch_size(training_args, model)
             training_args.per_device_eval_batch_size = training_args.per_device_train_batch_size
@@ -182,14 +211,29 @@ def main():
     # Load callbacks 
     ########################
     
+    callbacks = []
+
     # Создаем колбэк для метрик выравнивания
     if model_args.use_alignment_metrics:
         alignment_callback = AlignmentMetricsCallback(
             tokenizer=tokenizer,
             eval_dataset=eval_dataset
         )
-    logger.info(f"Callback created: {alignment_callback}")
+        logger.info(f"Callback created: {alignment_callback}")
+        callbacks.append(alignment_callback)
 
+    # Добавляем колбэк профилировщика (пример, как в dpo.py)
+    # Вам может потребоваться добавить аргумент `use_profiler` в ModelArguments
+    # if model_args.use_profiler:
+    if model_args.use_profiler:
+        profiler_callback = TensorBoardProfilerCallback(
+            profile_steps=10,
+            profile_warmup=5
+        )
+        logger.info(f"Callback created: {profiler_callback}")
+        callbacks.append(profiler_callback)
+    else:
+        profiler_callback = None
 
     ########################
     # Initialize the Trainer
@@ -209,7 +253,7 @@ def main():
         compute_metrics=None,
         learning_rate=2e-5,
         peft_config=get_peft_config(model_args),
-        callbacks=[alignment_callback if model_args.use_alignment_metrics else None],
+        callbacks=callbacks,
     )
     logger.info(f"Trainer callbacks: {trainer.callback_handler.callbacks}")
 

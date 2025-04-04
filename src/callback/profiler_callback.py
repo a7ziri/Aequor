@@ -63,21 +63,20 @@ class TensorBoardProfilerCallback(TrainerCallback):
 
         # --- Если мы дошли сюда, значит if НЕ сработал ---
         logger.info(">>> ProfilerCallback: Condition passed, proceeding to initialize/step profiler.")
-
         # Инициализация и старт профайлера при первом вызове в evaluation
         if self.profiler is None:
             logger.info(">>> ProfilerCallback: self.profiler is None. Attempting initialization...") # <--- ЛОГ 1
             try:
                 logger.info(">>> ProfilerCallback: Before profile(...) call") # <--- ЛОГ 2
                 prof = profile( # Используем временную переменную
-                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                    activities=[ProfilerActivity.CUDA],
                     schedule=torch.profiler.schedule(
                         wait=0, warmup=self.profile_warmup, active=self.profile_steps, repeat=1
                     ),
-                    on_trace_ready=tensorboard_trace_handler(self.log_dir),
                     record_shapes=True,
-                    profile_memory=True,
-                    with_stack=True
+                    on_trace_ready=tensorboard_trace_handler(self.log_dir),
+                    profile_memory=False,
+                    with_stack=False
                 )
                 logger.info(f">>> ProfilerCallback: profile(...) returned object: {type(prof)}") # <--- ЛОГ 3
                 logger.info(">>> ProfilerCallback: Before prof.__enter__()") # <--- ЛОГ 4

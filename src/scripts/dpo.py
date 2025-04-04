@@ -28,7 +28,8 @@ from src.model_utils import (
     get_quantization_config,
     auto_find_batch_size,
     get_kbit_device_map,
-    is_adapter_model
+    is_adapter_model,
+    estimate_memory_requirements
 )
 from peft import PeftConfig, PeftModel
 from trl import DPOTrainer, setup_chat_format
@@ -224,24 +225,25 @@ def main():
             training_args.per_device_train_batch_size = auto_find_batch_size(training_args, model)
             training_args.per_device_eval_batch_size = training_args.per_device_train_batch_size
             logger.info(f"Automatically selected batch size: {training_args.per_device_train_batch_size}")
-
+    mem_req = estimate_memory_requirements(
+        model,
+        training_args.per_device_train_batch_size,
+        data_args.tokenizer_max_seq_length
+        )
+    logger.info(f"***Memory requirements: {mem_req}***")
     ########################
     # Initialize the Trainer
     ########################
     callbacks = []
-    profiler_callback = TensorBoardProfilerCallback(
+    if model_args.use_profiler:
+        profiler_callback = TensorBoardProfilerCallback(
             profile_steps=10,
             profile_warmup=5
         )
-    # if model_args.use_profiler:
-    #     profiler_callback = TensorBoardProfilerCallback(
-    #         profile_steps=10,
-    #         profile_warmup=5
-    #     )
-    #     logger.info(f"Callback created: {profiler_callback}")
-    #     callbacks.append(profiler_callback)
-    # else:
-    #     profiler_callback = None
+        logger.info(f"Callback created: {profiler_callback}")
+        callbacks.append(profiler_callback)
+    else:
+        profiler_callback = None
     if model_args.use_alignment_metrics:
         alignment_callback = AlignmentMetricsCallback(
             tokenizer=tokenizer,
@@ -263,7 +265,7 @@ def main():
         dataset_num_proc=1,
         learning_rate=training_args.learning_rate,
         peft_config=None if model_args.use_peft else get_peft_config(model_args),
-        callbacks=[profiler_callback],
+        callbacks=callbacks,
         loss_type=training_args.loss_type,
         per_device_eval_batch_size=4,
         per_device_train_batch_size=2,
